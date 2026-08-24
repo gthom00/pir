@@ -342,6 +342,7 @@ class CozyList(OptionList):
     CozyList {
         border: none;
         padding: 0 1;
+        color: ansi_default;
         background: transparent;
         scrollbar-size-vertical: 0;
         scrollbar-size-horizontal: 0;
@@ -697,6 +698,10 @@ class CozydromeApp(App):
 
     def __init__(self, client: SubsonicClient | None = None) -> None:
         super().__init__(ansi_color=True)
+        # the ansi theme keeps every widget on the terminal's own default
+        # fg/bg — without it, list/input text is painted in dark-theme RGB
+        # greys that wash out on light terminals
+        self.theme = "ansi-light"
         self.client = client
         self.player = MpvPlayer(on_track_end=self._on_track_end)
 
