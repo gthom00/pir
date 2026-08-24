@@ -23,7 +23,7 @@ from pathlib import Path
 import keyring
 import requests
 
-from textual import work
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -145,16 +145,18 @@ class SubsonicClient:
     def album_list(self, list_type: str = "newest", size: int = 100) -> list[Album]:
         body = self._get("getAlbumList2", type=list_type, size=str(size))
         albums = body.get("albumList2", {}).get("album", [])
-        return [
-            Album(
-                id=a["id"],
-                name=a.get("name", "untitled"),
-                artist=a.get("artist", "unknown artist"),
-                year=a.get("year"),
-                song_count=a.get("songCount", 0),
-            )
-            for a in albums
-        ]
+        return [self._album(a) for a in albums]
+
+    def search_albums(self, query: str, count: int = 50) -> list[Album]:
+        body = self._get(
+            "search3",
+            query=query,
+            albumCount=str(count),
+            songCount="0",
+            artistCount="0",
+        )
+        albums = body.get("searchResult3", {}).get("album", [])
+        return [self._album(a) for a in albums]
 
     def album_songs(self, album_id: str) -> list[Song]:
         body = self._get("getAlbum", id=album_id)
@@ -178,6 +180,16 @@ class SubsonicClient:
             f"{k}={requests.utils.quote(str(v))}" for k, v in params.items()
         )
         return f"{self.server}/rest/stream?{query}"
+
+    @staticmethod
+    def _album(a: dict) -> Album:
+        return Album(
+            id=a["id"],
+            name=a.get("name", "untitled"),
+            artist=a.get("artist", "unknown artist"),
+            year=a.get("year"),
+            song_count=a.get("songCount", 0),
+        )
 
     @staticmethod
     def _song(s: dict) -> Song:
@@ -362,6 +374,16 @@ class CozyList(OptionList):
     """
 
 
+class SearchInput(Input):
+    """Search box where tab flips the search target instead of moving focus."""
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "tab":
+            event.stop()
+            event.prevent_default()
+            self.screen.action_toggle_search_mode()
+
+
 class NowPlaying(Static):
     DEFAULT_CSS = """
     NowPlaying {
@@ -473,15 +495,25 @@ class MainScreen(Screen):
         width: 1fr;
         padding: 0 1;
     }
-    #search {
+    #search-row {
         display: none;
-        border: none;
         height: 1;
         padding: 0 2;
-        background: transparent;
     }
-    #search.visible {
+    #search-row.visible {
         display: block;
+    }
+    #search-mode {
+        width: auto;
+        padding: 0 2 0 0;
+        text-style: bold;
+    }
+    #search {
+        width: 1fr;
+        border: none;
+        height: 1;
+        padding: 0;
+        background: transparent;
     }
     #search:focus {
         border: none;
@@ -506,6 +538,7 @@ class MainScreen(Screen):
         self.songs: list[Song] = []
         self.queue: list[Song] = []
         self.queue_index: int = -1
+        self.search_mode: str = "albums"
 
     # ── layout ──
 
@@ -515,7 +548,12 @@ class MainScreen(Screen):
             f"[{DIM}]· space pause · n next · / search · r shuffle · q quit[/]",
             id="title",
         )
-        yield Input(placeholder="what are you in the mood for?", id="search")
+        with Horizontal(id="search-row"):
+            yield Static("albums", id="search-mode")
+            yield SearchInput(
+                placeholder="what are you in the mood for?  (tab switches target)",
+                id="search",
+            )
         with Horizontal(id="panes"):
             with Vertical(id="albums-pane"):
                 yield PaneTitle("✻ albums")
@@ -547,10 +585,22 @@ class MainScreen(Screen):
         lst.clear_options()
         lst.add_option(Option(f"☂ {message}", disabled=True))
 
-    def _show_albums(self, albums: list[Album]) -> None:
+    @work(thread=True, exclusive=True, group="albums")
+    def run_search_albums(self, query: str) -> None:
+        try:
+            albums = self.app.client.search_albums(query)
+        except Exception as exc:
+            self.app.call_from_thread(self._show_albums_error, str(exc))
+            return
+        note = None if albums else f"☾ nothing found for “{query}”"
+        self.app.call_from_thread(self._show_albums, albums, note)
+
+    def _show_albums(self, albums: list[Album], note: str | None = None) -> None:
         self.albums = albums
         lst = self.query_one("#albums", CozyList)
         lst.clear_options()
+        if note:
+            lst.add_option(Option(note, disabled=True))
         for album in albums:
             year = f"  [{DIM}]{album.year}[/]" if album.year else ""
             lst.add_option(Option(f"{album.name}  [{DIM}]{album.artist}[/]{year}"))
@@ -642,22 +692,29 @@ class MainScreen(Screen):
     # ── other actions ──
 
     def action_search(self) -> None:
-        box = self.query_one("#search", Input)
-        box.add_class("visible")
-        box.focus()
+        self.query_one("#search-row").add_class("visible")
+        self.query_one("#search", Input).focus()
 
     def action_hide_search(self) -> None:
-        box = self.query_one("#search", Input)
-        box.remove_class("visible")
+        self.query_one("#search-row").remove_class("visible")
         self.query_one("#albums", CozyList).focus()
+
+    def action_toggle_search_mode(self) -> None:
+        self.search_mode = "songs" if self.search_mode == "albums" else "albums"
+        self.query_one("#search-mode", Static).update(self.search_mode)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "search":
             query = event.value.strip()
-            event.input.remove_class("visible")
-            if query:
-                self.run_search(query)
-            self.query_one("#songs", CozyList).focus()
+            self.query_one("#search-row").remove_class("visible")
+            if self.search_mode == "albums":
+                if query:
+                    self.run_search_albums(query)
+                self.query_one("#albums", CozyList).focus()
+            else:
+                if query:
+                    self.run_search(query)
+                self.query_one("#songs", CozyList).focus()
 
     def action_shuffle_albums(self) -> None:
         self.load_albums("random")

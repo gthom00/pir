@@ -37,6 +37,9 @@ class FakeClient:
     def search_songs(self, query, count=50):
         return [s for songs in self.songs.values() for s in songs if query.lower() in s.title.lower()]
 
+    def search_albums(self, query, count=50):
+        return [a for a in self.albums if query.lower() in a.name.lower()]
+
     def stream_url(self, song_id):
         return f"fake://stream/{song_id}"
 
@@ -106,11 +109,31 @@ async def test_play_pause_and_advance():
 
 
 @pytest.mark.asyncio
-async def test_search_flow():
+async def test_album_search_is_default():
     app = make_app()
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause(0.3)
         await pilot.press("slash")
+        assert app.screen.search_mode == "albums"
+        for ch in "rainy":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        albums = app.screen.query_one("#albums")
+        assert albums.option_count == 1
+        assert app.screen.albums[0].id == "a2"
+
+
+@pytest.mark.asyncio
+async def test_song_search_via_toggle():
+    app = make_app()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause(0.3)
+        await pilot.press("slash")
+        # tab inside the search box flips the target instead of moving focus
+        await pilot.press("tab")
+        assert app.screen.search_mode == "songs"
+        assert app.screen.focused.id == "search"
         for ch in "drizzle":
             await pilot.press(ch)
         await pilot.press("enter")

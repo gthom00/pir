@@ -46,7 +46,7 @@ salted-token auth, so the raw password is never placed in a url.
 | `enter` | on an album: peek inside · on a song: play from here |
 | `space` | pause / resume                        |
 | `n`/`b` | next / back                           |
-| `/`     | search songs                          |
+| `/`     | search albums (`tab` in the box switches to songs) |
 | `r`     | shuffle in a fresh batch of albums    |
 | `q`     | goodnight ☾                           |
 
