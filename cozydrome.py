@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """cozydrome — a cozy little Navidrome client for your terminal.
 
-No borders, gentle padding, cute symbols, and your terminal's own colors.
+No borders, gentle padding, a few cute symbols, and no colors at all —
+just your terminal's default foreground with bold, dim, and reverse.
 Playback is handled by mpv; your password lives in the system keychain.
 """
 
@@ -35,8 +36,8 @@ API_VERSION = "1.16.1"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_NAME
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 
-ACCENT = "ansi_magenta"
-DIM = "ansi_bright_black"
+ACCENT = "bold"
+DIM = "dim"
 
 
 # ──────────────────────────── config & credentials ────────────────────────────
@@ -331,7 +332,7 @@ class PaneTitle(Static):
     PaneTitle {
         height: 1;
         padding: 0 2;
-        color: ansi_magenta;
+        text-style: bold;
     }
     """
 
@@ -342,20 +343,19 @@ class CozyList(OptionList):
         border: none;
         padding: 0 1;
         background: transparent;
-        scrollbar-size-vertical: 1;
+        scrollbar-size-vertical: 0;
+        scrollbar-size-horizontal: 0;
     }
     CozyList:focus {
         border: none;
         background: transparent;
     }
     CozyList > .option-list--option-highlighted {
-        color: ansi_magenta;
         text-style: bold;
         background: transparent;
     }
     CozyList:focus > .option-list--option-highlighted {
-        color: ansi_magenta;
-        text-style: bold;
+        text-style: reverse;
         background: transparent;
     }
     """
@@ -411,10 +411,10 @@ class SetupScreen(Screen):
                 f"never into a file.[/]"
             )
             yield Input(
-                placeholder="✧ server url  (https://music.example.com)", id="server"
+                placeholder="server url  (https://music.example.com)", id="server"
             )
-            yield Input(placeholder="✧ username", id="username")
-            yield Input(placeholder="✧ password", password=True, id="password")
+            yield Input(placeholder="username", id="username")
+            yield Input(placeholder="password", password=True, id="password")
             yield Static("", id="setup-status")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -514,13 +514,13 @@ class MainScreen(Screen):
             f"[{DIM}]· space pause · n next · / search · r shuffle · q quit[/]",
             id="title",
         )
-        yield Input(placeholder="⌕ what are you in the mood for?", id="search")
+        yield Input(placeholder="what are you in the mood for?", id="search")
         with Horizontal(id="panes"):
             with Vertical(id="albums-pane"):
-                yield PaneTitle("✧ albums")
+                yield PaneTitle("albums")
                 yield CozyList(id="albums")
             with Vertical(id="songs-pane"):
-                yield PaneTitle("♫ songs")
+                yield PaneTitle("songs")
                 yield CozyList(id="songs")
         yield NowPlaying(id="now-playing")
 
@@ -552,7 +552,7 @@ class MainScreen(Screen):
         lst.clear_options()
         for album in albums:
             year = f"  [{DIM}]{album.year}[/]" if album.year else ""
-            lst.add_option(Option(f"❀ {album.name}  [{DIM}]{album.artist}[/]{year}"))
+            lst.add_option(Option(f"{album.name}  [{DIM}]{album.artist}[/]{year}"))
         if albums:
             lst.highlighted = 0
 
@@ -583,7 +583,7 @@ class MainScreen(Screen):
             lst.add_option(Option(note, disabled=True))
         for song in songs:
             length = f"  [{DIM}]{fmt_time(song.duration)}[/]" if song.duration else ""
-            lst.add_option(Option(f"· {song.title}  [{DIM}]{song.artist}[/]{length}"))
+            lst.add_option(Option(f"{song.title}  [{DIM}]{song.artist}[/]{length}"))
         if songs:
             lst.highlighted = 0
 

@@ -2,16 +2,16 @@
 
 a cozy little [Navidrome](https://www.navidrome.org/) client for your terminal.
 
-no borders — just gentle padding, cute symbols, and your terminal's own
-colors (the palette is deliberately tiny: magenta for warmth, bright-black
-for whispers, and your default fg/bg for everything else).
+no borders, no scrollbars, no colors — just gentle padding, a few cute
+symbols, and your terminal's default fg/bg dressed up with nothing but
+bold, dim, and reverse.
 
 ```
   ✿ cozydrome   · space pause · n next · / search · r shuffle · q quit
 
-  ✧ albums                            ♫ songs
-   ❀ Evening Tea  The Kettles  2021    · Steam  The Kettles  3:01
-   ❀ Rainy Windows  Cloud Choir       · Chamomile  The Kettles  3:42
+  albums                             songs
+   Evening Tea  The Kettles  2021     Steam  The Kettles  3:01
+   Rainy Windows  Cloud Choir         Chamomile  The Kettles  3:42
 
   ♪ Steam  The Kettles
   ─────────●──────────────────  0:42 / 3:01
