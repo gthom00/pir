@@ -517,10 +517,10 @@ class MainScreen(Screen):
         yield Input(placeholder="what are you in the mood for?", id="search")
         with Horizontal(id="panes"):
             with Vertical(id="albums-pane"):
-                yield PaneTitle("albums")
+                yield PaneTitle("✻ albums")
                 yield CozyList(id="albums")
             with Vertical(id="songs-pane"):
-                yield PaneTitle("songs")
+                yield PaneTitle("✻ songs")
                 yield CozyList(id="songs")
         yield NowPlaying(id="now-playing")
 

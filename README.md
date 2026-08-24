@@ -9,7 +9,7 @@ bold, dim, and reverse.
 ```
   ✿ cozydrome   · space pause · n next · / search · r shuffle · q quit
 
-  albums                             songs
+  ✻ albums                           ✻ songs
    Evening Tea  The Kettles  2021     Steam  The Kettles  3:01
    Rainy Windows  Cloud Choir         Chamomile  The Kettles  3:42
 
