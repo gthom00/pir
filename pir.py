@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cozydrome — a cozy little Navidrome client for your terminal.
+"""pir — a cozy little Navidrome client for your terminal.
 
 No borders, gentle padding, a few cute symbols, and no colors at all —
 just your terminal's default foreground with bold, dim, and reverse.
@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import random
 import secrets
 import socket
 import subprocess
@@ -31,10 +32,15 @@ from textual.screen import Screen
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-APP_NAME = "cozydrome"
+APP_NAME = "pir"
 API_VERSION = "1.16.1"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_NAME
 CONFIG_FILE = CONFIG_DIR / "config.toml"
+
+# pir used to be called cozydrome; logins saved under the old name migrate
+# automatically on first load
+OLD_APP_NAME = "cozydrome"
+OLD_CONFIG_FILE = CONFIG_DIR.parent / OLD_APP_NAME / "config.toml"
 
 ACCENT = "bold"
 DIM = "dim"
@@ -50,10 +56,17 @@ class Config:
 
     @classmethod
     def load(cls) -> "Config | None":
+        config = cls._read(CONFIG_FILE)
+        if config is None:
+            config = cls._migrate_from_cozydrome()
+        return config
+
+    @classmethod
+    def _read(cls, path: Path) -> "Config | None":
         try:
             import tomllib
 
-            with open(CONFIG_FILE, "rb") as f:
+            with open(path, "rb") as f:
                 data = tomllib.load(f)
             server = data.get("server", "").rstrip("/")
             username = data.get("username", "")
@@ -62,6 +75,19 @@ class Config:
         except FileNotFoundError:
             pass
         return None
+
+    @classmethod
+    def _migrate_from_cozydrome(cls) -> "Config | None":
+        config = cls._read(OLD_CONFIG_FILE)
+        if config is None:
+            return None
+        # copy the keychain entry before saving, so a keyring hiccup leaves
+        # the old login untouched; the cozydrome leftovers are kept in place
+        password = keyring.get_password(OLD_APP_NAME, config.username)
+        if password:
+            keyring.set_password(APP_NAME, config.username, password)
+        config.save()
+        return config
 
     def save(self) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -142,10 +168,21 @@ class SubsonicClient:
     def ping(self) -> None:
         self._get("ping")
 
-    def album_list(self, list_type: str = "newest", size: int = 100) -> list[Album]:
-        body = self._get("getAlbumList2", type=list_type, size=str(size))
-        albums = body.get("albumList2", {}).get("album", [])
-        return [self._album(a) for a in albums]
+    def album_list_all(self, list_type: str = "alphabeticalByName") -> list[Album]:
+        """Every album in the library, paged through getAlbumList2."""
+        albums: list[Album] = []
+        offset = 0
+        while True:
+            body = self._get(
+                "getAlbumList2", type=list_type, size="500", offset=str(offset)
+            )
+            batch = [
+                self._album(a) for a in body.get("albumList2", {}).get("album", [])
+            ]
+            albums.extend(batch)
+            if len(batch) < 500:
+                return albums
+            offset += 500
 
     def search_albums(self, query: str, count: int = 50) -> list[Album]:
         body = self._get(
@@ -363,11 +400,16 @@ class CozyList(OptionList):
         border: none;
         background: transparent;
     }
+    /* pin color to ansi_default: the theme's block-cursor foreground is
+       bright white, and under reverse that becomes the row background —
+       an invisible white-on-white block on light terminals */
     CozyList > .option-list--option-highlighted {
+        color: ansi_default;
         text-style: bold;
         background: transparent;
     }
     CozyList:focus > .option-list--option-highlighted {
+        color: ansi_default;
         text-style: reverse;
         background: transparent;
     }
@@ -526,10 +568,19 @@ class MainScreen(Screen):
         Binding("n", "next_song", "next"),
         Binding("b", "prev_song", "back"),
         Binding("slash", "search", "search"),
-        Binding("r", "shuffle_albums", "random albums"),
+        Binding("s", "cycle_sort", "sort"),
+        Binding("r", "shuffle_albums", "shuffle"),
         Binding("escape", "hide_search", show=False),
         Binding("tab", "swap_pane", "swap", show=False),
         Binding("q", "app.quit", "quit"),
+    ]
+
+    # (label shown in the pane title, getAlbumList2 type)
+    SORTS = [
+        ("alphabetical", "alphabeticalByName"),
+        ("recently added", "newest"),
+        ("recently played", "recent"),
+        ("random", "alphabeticalByName"),  # fetched sorted, shuffled locally
     ]
 
     def __init__(self) -> None:
@@ -539,13 +590,14 @@ class MainScreen(Screen):
         self.queue: list[Song] = []
         self.queue_index: int = -1
         self.search_mode: str = "albums"
+        self.sort_index: int = 0
 
     # ── layout ──
 
     def compose(self) -> ComposeResult:
         yield Static(
             f"[{ACCENT}]✿ {APP_NAME}[/]  "
-            f"[{DIM}]· space pause · n next · / search · r shuffle · q quit[/]",
+            f"[{DIM}]· space pause · n next · / search · s sort · r shuffle · q quit[/]",
             id="title",
         )
         with Horizontal(id="search-row"):
@@ -556,7 +608,7 @@ class MainScreen(Screen):
             )
         with Horizontal(id="panes"):
             with Vertical(id="albums-pane"):
-                yield PaneTitle("✻ albums")
+                yield PaneTitle("✻ albums", id="albums-title")
                 yield CozyList(id="albums")
             with Vertical(id="songs-pane"):
                 yield PaneTitle("✻ songs")
@@ -567,18 +619,27 @@ class MainScreen(Screen):
         self.query_one("#albums", CozyList).focus()
         self._render_now_playing()
         self.set_interval(0.5, self._render_now_playing)
-        self.load_albums("newest")
+        self.load_albums()
 
     # ── data loading (thread workers) ──
 
     @work(thread=True, exclusive=True, group="albums")
-    def load_albums(self, list_type: str) -> None:
+    def load_albums(self) -> None:
+        label, list_type = self.SORTS[self.sort_index]
+        self.app.call_from_thread(self._show_albums_note, "☕ fetching your library…")
         try:
-            albums = self.app.client.album_list(list_type)
+            albums = self.app.client.album_list_all(list_type)
         except Exception as exc:
             self.app.call_from_thread(self._show_albums_error, str(exc))
             return
+        if label == "random":
+            random.shuffle(albums)
         self.app.call_from_thread(self._show_albums, albums)
+
+    def _show_albums_note(self, note: str) -> None:
+        lst = self.query_one("#albums", CozyList)
+        lst.clear_options()
+        lst.add_option(Option(f"[{DIM}]{note}[/]", disabled=True))
 
     def _show_albums_error(self, message: str) -> None:
         lst = self.query_one("#albums", CozyList)
@@ -593,10 +654,20 @@ class MainScreen(Screen):
             self.app.call_from_thread(self._show_albums_error, str(exc))
             return
         note = None if albums else f"☾ nothing found for “{query}”"
-        self.app.call_from_thread(self._show_albums, albums, note)
+        self.app.call_from_thread(self._show_albums, albums, note, "search")
 
-    def _show_albums(self, albums: list[Album], note: str | None = None) -> None:
+    def _show_albums(
+        self,
+        albums: list[Album],
+        note: str | None = None,
+        source: str | None = None,
+    ) -> None:
         self.albums = albums
+        label = source or self.SORTS[self.sort_index][0]
+        count = f" · {len(albums)}" if albums else ""
+        self.query_one("#albums-title", PaneTitle).update(
+            f"✻ albums  [{DIM}]· {label}{count}[/]"
+        )
         lst = self.query_one("#albums", CozyList)
         lst.clear_options()
         if note:
@@ -716,8 +787,15 @@ class MainScreen(Screen):
                     self.run_search(query)
                 self.query_one("#songs", CozyList).focus()
 
+    def action_cycle_sort(self) -> None:
+        self.sort_index = (self.sort_index + 1) % len(self.SORTS)
+        self.load_albums()
+
     def action_shuffle_albums(self) -> None:
-        self.load_albums("random")
+        self.sort_index = next(
+            i for i, (label, _) in enumerate(self.SORTS) if label == "random"
+        )
+        self.load_albums()
 
     def action_swap_pane(self) -> None:
         albums = self.query_one("#albums", CozyList)
@@ -745,7 +823,7 @@ class MainScreen(Screen):
 # ──────────────────────────────────── app ─────────────────────────────────────
 
 
-class CozydromeApp(App):
+class PirApp(App):
     DEFAULT_CSS = """
     Screen {
         background: ansi_default;
@@ -802,7 +880,7 @@ class CozydromeApp(App):
 
 
 def main() -> None:
-    CozydromeApp().run()
+    PirApp().run()
 
 
 if __name__ == "__main__":

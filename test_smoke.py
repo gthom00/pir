@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-import cozydrome
-from cozydrome import Album, CozydromeApp, MainScreen, Song, fmt_time, progress_bar
+import pir
+from pir import Album, MainScreen, PirApp, Song, fmt_time, progress_bar
 
 
 class FakeClient:
@@ -28,8 +28,10 @@ class FakeClient:
             ],
         }
 
-    def album_list(self, list_type="newest", size=100):
-        return self.albums
+    def album_list_all(self, list_type="alphabeticalByName"):
+        if list_type == "newest":
+            return list(reversed(self.albums))
+        return sorted(self.albums, key=lambda a: a.name.lower())
 
     def album_songs(self, album_id):
         return self.songs[album_id]
@@ -67,8 +69,8 @@ class FakePlayer:
         pass
 
 
-def make_app() -> CozydromeApp:
-    app = CozydromeApp(client=FakeClient())
+def make_app() -> PirApp:
+    app = PirApp(client=FakeClient())
     app.player = FakePlayer()
     return app
 
@@ -143,6 +145,62 @@ async def test_song_search_via_toggle():
         assert app.screen.songs[0].id == "s3"
 
 
+@pytest.mark.asyncio
+async def test_sort_cycles_and_shuffle():
+    app = make_app()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause(0.3)
+        # default: full library, alphabetical
+        assert app.screen.SORTS[app.screen.sort_index][0] == "alphabetical"
+        assert [a.id for a in app.screen.albums] == ["a1", "a2"]
+        # s cycles to recently added (fake serves newest as reversed order)
+        await pilot.press("s")
+        await pilot.pause(0.3)
+        assert app.screen.SORTS[app.screen.sort_index][0] == "recently added"
+        assert [a.id for a in app.screen.albums] == ["a2", "a1"]
+        # r jumps straight to random; everything is still there
+        await pilot.press("r")
+        await pilot.pause(0.3)
+        assert app.screen.SORTS[app.screen.sort_index][0] == "random"
+        assert sorted(a.id for a in app.screen.albums) == ["a1", "a2"]
+
+
+@pytest.mark.asyncio
+async def test_highlight_keeps_default_colors():
+    # regression: the theme's bright-white block-cursor color under reverse
+    # painted a white-on-white highlight on light terminals
+    app = make_app()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause(0.3)
+        lst = app.screen.query_one("#albums")
+        style = lst.get_visual_style("option-list--option-highlighted")
+        assert "bright_white" not in str(style)
+        assert style.foreground.ansi == -1  # -1 is the terminal's default color
+
+
+def test_config_migrates_from_cozydrome(monkeypatch, tmp_path):
+    old_file = tmp_path / "cozydrome" / "config.toml"
+    old_file.parent.mkdir()
+    old_file.write_text('server = "https://x.example"\nusername = "graham"\n')
+    new_dir = tmp_path / "pir"
+    monkeypatch.setattr(pir, "CONFIG_DIR", new_dir)
+    monkeypatch.setattr(pir, "CONFIG_FILE", new_dir / "config.toml")
+    monkeypatch.setattr(pir, "OLD_CONFIG_FILE", old_file)
+    stored = {("cozydrome", "graham"): "sekrit"}
+    monkeypatch.setattr(
+        pir.keyring, "get_password", lambda svc, user: stored.get((svc, user))
+    )
+    monkeypatch.setattr(
+        pir.keyring,
+        "set_password",
+        lambda svc, user, pw: stored.__setitem__((svc, user), pw),
+    )
+    config = pir.Config.load()
+    assert config is not None and config.username == "graham"
+    assert (new_dir / "config.toml").exists()
+    assert stored[("pir", "graham")] == "sekrit"
+
+
 def test_fmt_time():
     assert fmt_time(0) == "0:00"
     assert fmt_time(61) == "1:01"
@@ -155,7 +213,7 @@ def test_progress_bar_renders():
 
 
 def test_auth_token_never_contains_password():
-    client = cozydrome.SubsonicClient("https://x.example", "graham", "sekrit")
+    client = pir.SubsonicClient("https://x.example", "graham", "sekrit")
     params = client._auth_params()
     assert "sekrit" not in "".join(params.values())
     url = client.stream_url("song1")
@@ -165,12 +223,12 @@ def test_auth_token_never_contains_password():
 
 @pytest.mark.asyncio
 async def test_setup_screen_mounts(monkeypatch):
-    monkeypatch.setattr(cozydrome.Config, "load", classmethod(lambda cls: None))
-    app = CozydromeApp()
+    monkeypatch.setattr(pir.Config, "load", classmethod(lambda cls: None))
+    app = PirApp()
     app.player = FakePlayer()
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause(0.3)
-        assert isinstance(app.screen, cozydrome.SetupScreen)
+        assert isinstance(app.screen, pir.SetupScreen)
         # submitting with empty fields shows the gentle nag, not a crash
         await pilot.press("enter")
         app.screen.query_one("#password")

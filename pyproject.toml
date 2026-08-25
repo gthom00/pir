@@ -1,5 +1,5 @@
 [project]
-name = "cozydrome"
+name = "pir"
 version = "0.1.0"
 description = "a cozy little Navidrome client for your terminal"
 requires-python = ">=3.11"
@@ -10,11 +10,11 @@ dependencies = [
 ]
 
 [project.scripts]
-cozydrome = "cozydrome:main"
+pir = "pir:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-include = ["cozydrome.py"]
+include = ["pir.py"]
