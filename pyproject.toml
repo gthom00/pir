@@ -2,6 +2,8 @@
 name = "pir"
 version = "0.1.0"
 description = "a cozy little Navidrome client for your terminal"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "textual>=1.0",

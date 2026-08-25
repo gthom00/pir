@@ -67,6 +67,10 @@ rm ~/.config/pir/config.toml
 (if you upgraded from cozydrome, the old entries may still be around —
 same two commands with `pir` swapped for `cozydrome`.)
 
+## license
+
+[MIT](LICENSE)
+
 ## tests
 
 ```sh
