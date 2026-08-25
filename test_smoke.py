@@ -166,16 +166,17 @@ async def test_sort_cycles_and_shuffle():
 
 
 @pytest.mark.asyncio
-async def test_highlight_keeps_default_colors():
-    # regression: the theme's bright-white block-cursor color under reverse
-    # painted a white-on-white highlight on light terminals
+async def test_highlight_matches_hover_block():
+    # regression: reverse video over default colors was invisible on some
+    # terminals; the keyboard cursor now paints the same ansi_white block
+    # the mouse hover uses, with explicit black text
     app = make_app()
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause(0.3)
-        lst = app.screen.query_one("#albums")
-        style = lst.get_visual_style("option-list--option-highlighted")
-        assert "bright_white" not in str(style)
-        assert style.foreground.ansi == -1  # -1 is the terminal's default color
+        lst = app.screen.query_one("#albums")  # focused on mount
+        style = lst.get_component_styles("option-list--option-highlighted")
+        assert style.background.ansi == 7  # ansi_white, same as hover
+        assert style.color.ansi == 0  # ansi_black
 
 
 def test_config_migrates_from_cozydrome(monkeypatch, tmp_path):

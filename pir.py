@@ -400,18 +400,18 @@ class CozyList(OptionList):
         border: none;
         background: transparent;
     }
-    /* pin color to ansi_default: the theme's block-cursor foreground is
-       bright white, and under reverse that becomes the row background —
-       an invisible white-on-white block on light terminals */
     CozyList > .option-list--option-highlighted {
         color: ansi_default;
         text-style: bold;
         background: transparent;
     }
+    /* the cursor row mirrors the mouse-hover block (ansi_white, palette
+       color 7) — reverse video proved invisible on some terminals; black
+       text keeps it readable on both light and dark palettes */
     CozyList:focus > .option-list--option-highlighted {
-        color: ansi_default;
-        text-style: reverse;
-        background: transparent;
+        color: ansi_black;
+        background: ansi_white;
+        text-style: bold;
     }
     """
 
