@@ -1,4 +1,4 @@
-# ✿ pir
+# [pir](https://www.youtube.com/watch?v=Zagwerydn7o)
 
 simple [navidrome](https://www.navidrome.org/) client for the terminal
 
