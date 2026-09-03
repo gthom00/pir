@@ -1,9 +1,6 @@
 # ✿ pir
 
-A small [Navidrome](https://www.navidrome.org/) client for the terminal.
-
-No borders, no scrollbars, no colours — just your terminal's own
-foreground and background, dressed up with bold and dim.
+simple [navidrome](https://www.navidrome.org/) client for the terminal
 
 ```
   ✿ pir   · space pause · ←→ seek · n next · / search · s sort · q quit
@@ -16,25 +13,18 @@ foreground and background, dressed up with bold and dim.
   ─────────●──────────────────  0:42 / 3:01
 ```
 
-## Needs
+## needs
 
-Python 3.11 or newer, and [mpv](https://mpv.io/) on your PATH
-(`brew install mpv`) — mpv does the actual listening.
+- python 3.11 or newer, 
+- [mpv](https://mpv.io/) on your PATH
 
-## Install
+## install
 
-With [uv](https://docs.astral.sh/uv/), which puts `pir` on your PATH in
-its own isolated environment:
+with [uv](https://docs.astral.sh/uv/):
 
 ```sh
 uv tool install .
 ```
-
-That drops the executable in `~/.local/bin`; if that isn't on your PATH
-yet, `uv tool update-shell` will add it. After a `git pull`, reinstall
-with `uv tool install . --force` — the version number doesn't move
-between commits, so a plain upgrade has nothing to go on. `uv tool
-uninstall pir` to be rid of it.
 
 [pipx](https://pipx.pypa.io/) does the same job if you'd rather:
 
@@ -42,21 +32,12 @@ uninstall pir` to be rid of it.
 pipx install .
 ```
 
-Or keep it local to the checkout and skip PATH entirely:
+the first run asks for your server url, username, and password. the
+password goes into your system keychain via `keyring`. only the server
+url and username are written to `~/.config/pir/config.toml`, chmod 600.
+requests use subsonic salted-token auth
 
-```sh
-python3 -m venv .venv
-.venv/bin/pip install .
-.venv/bin/pir
-```
-
-The first run asks for your server URL, username, and password. The
-password goes into your system keychain via `keyring` — Keychain on
-macOS, Secret Service on Linux. Only the server URL and username are
-written to `~/.config/pir/config.toml`, chmod 600. Requests use Subsonic
-salted-token auth, so the raw password never appears in a URL.
-
-## Keys
+## keys
 
 | key             | does                                                   |
 | --------------- | ------------------------------------------------------ |
@@ -71,36 +52,24 @@ salted-token auth, so the raw password never appears in a URL.
 | `r`             | jump straight to a fresh shuffle                       |
 | `q`             | quit                                                   |
 
-The albums pane always holds your whole library; the pane title shows the
-current sort and the album count.
+## scrobbling
 
-## Scrobbling
+pir reports what you're listening to as you listen to the server. i only did this for discord rpc
 
-pir reports what you're listening to as you listen. The moment a track
-starts it tells the server, and refreshes that every 30 seconds, so
-Navidrome's web UI shows the same thing you're hearing.
-
-The play itself is recorded once you've heard half the track or four
-minutes of it, whichever comes first — the usual rule. Tracks under 30
-seconds never count, and neither does time you skipped past: pir adds up
-how far the clock actually moved, so scrubbing to the end doesn't earn a
-scrobble. Everything goes out on a background thread, and a request that
-fails is quietly dropped rather than interrupting playback.
-
-## Forgetting a login
+## forgetting a login
 
 ```sh
 python3 -c "import keyring; keyring.delete_password('pir', 'YOUR_USERNAME')"
 rm ~/.config/pir/config.toml
 ```
 
-## Tests
+## tests
 
 ```sh
 .venv/bin/pip install pytest pytest-asyncio
 .venv/bin/python -m pytest test_smoke.py -q
 ```
 
-## License
+## license
 
 [MIT](LICENSE)
