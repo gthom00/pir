@@ -1,13 +1,12 @@
 # ✿ pir
 
-a cozy little [Navidrome](https://www.navidrome.org/) client for your terminal.
+A small [Navidrome](https://www.navidrome.org/) client for the terminal.
 
-no borders, no scrollbars, no colors — just gentle padding, a few cute
-symbols, and your terminal's default fg/bg dressed up with nothing but
-bold, dim, and reverse.
+No borders, no scrollbars, no colours — just your terminal's own
+foreground and background, dressed up with bold and dim.
 
 ```
-  ✿ pir   · space pause · n next · / search · s sort · r shuffle · q quit
+  ✿ pir   · space pause · ←→ seek · n next · / search · s sort · q quit
 
   ✻ albums  · alphabetical · 132       ✻ songs
    Evening Tea  The Kettles  2021       Steam  The Kettles  3:01
@@ -17,13 +16,33 @@ bold, dim, and reverse.
   ─────────●──────────────────  0:42 / 3:01
 ```
 
-## needs
+## Needs
 
-- python 3.11+
-- [mpv](https://mpv.io/) on your PATH (`brew install mpv`) — it does the
-  actual listening
+Python 3.11 or newer, and [mpv](https://mpv.io/) on your PATH
+(`brew install mpv`) — mpv does the actual listening.
 
-## setup
+## Install
+
+With [uv](https://docs.astral.sh/uv/), which puts `pir` on your PATH in
+its own isolated environment:
+
+```sh
+uv tool install .
+```
+
+That drops the executable in `~/.local/bin`; if that isn't on your PATH
+yet, `uv tool update-shell` will add it. After a `git pull`, reinstall
+with `uv tool install . --force` — the version number doesn't move
+between commits, so a plain upgrade has nothing to go on. `uv tool
+uninstall pir` to be rid of it.
+
+[pipx](https://pipx.pypa.io/) does the same job if you'd rather:
+
+```sh
+pipx install .
+```
+
+Or keep it local to the checkout and skip PATH entirely:
 
 ```sh
 python3 -m venv .venv
@@ -31,49 +50,57 @@ python3 -m venv .venv
 .venv/bin/pir
 ```
 
-first run asks for your server url, username, and password. the password
-goes into your **system keychain** (via `keyring` — Keychain on macOS,
-Secret Service on Linux); only the server url and username are written to
-`~/.config/pir/config.toml` (chmod 600). requests use subsonic
-salted-token auth, so the raw password is never placed in a url.
+The first run asks for your server URL, username, and password. The
+password goes into your system keychain via `keyring` — Keychain on
+macOS, Secret Service on Linux. Only the server URL and username are
+written to `~/.config/pir/config.toml`, chmod 600. Requests use Subsonic
+salted-token auth, so the raw password never appears in a URL.
 
-pir used to be called cozydrome — an old login is copied over
-automatically the first time pir runs.
+## Keys
 
-## keys
+| key             | does                                                   |
+| --------------- | ------------------------------------------------------ |
+| arrows          | move through the lists                                 |
+| `tab`           | switch between albums and songs                        |
+| `enter`         | on an album: open it · on a song: play from there      |
+| `space`         | pause / resume                                         |
+| `←` `→`         | scrub 5 seconds (hold shift for 30)                    |
+| `n` `b`         | next / previous track                                  |
+| `/`             | search albums (`tab` in the box switches to songs)     |
+| `s`             | cycle sort: alphabetical, recently added, recently played, random |
+| `r`             | jump straight to a fresh shuffle                       |
+| `q`             | quit                                                   |
 
-| key     | does                                  |
-| ------- | ------------------------------------- |
-| `j`/`k`/arrows | wander the lists               |
-| `tab`   | hop between albums and songs          |
-| `enter` | on an album: peek inside · on a song: play from here |
-| `space` | pause / resume                        |
-| `n`/`b` | next / back                           |
-| `/`     | search albums (`tab` in the box switches to songs) |
-| `s`     | cycle sort: alphabetical · recently added · recently played · random |
-| `r`     | jump straight to a fresh shuffle      |
-| `q`     | goodnight ☾                           |
+The albums pane always holds your whole library; the pane title shows the
+current sort and the album count.
 
-the albums pane always holds your whole library; the pane title shows the
-current sort and how many albums live there.
+## Scrobbling
 
-## forgetting a login
+pir reports what you're listening to as you listen. The moment a track
+starts it tells the server, and refreshes that every 30 seconds, so
+Navidrome's web UI shows the same thing you're hearing.
+
+The play itself is recorded once you've heard half the track or four
+minutes of it, whichever comes first — the usual rule. Tracks under 30
+seconds never count, and neither does time you skipped past: pir adds up
+how far the clock actually moved, so scrubbing to the end doesn't earn a
+scrobble. Everything goes out on a background thread, and a request that
+fails is quietly dropped rather than interrupting playback.
+
+## Forgetting a login
 
 ```sh
 python3 -c "import keyring; keyring.delete_password('pir', 'YOUR_USERNAME')"
 rm ~/.config/pir/config.toml
 ```
 
-(if you upgraded from cozydrome, the old entries may still be around —
-same two commands with `pir` swapped for `cozydrome`.)
-
-## license
-
-[MIT](LICENSE)
-
-## tests
+## Tests
 
 ```sh
 .venv/bin/pip install pytest pytest-asyncio
 .venv/bin/python -m pytest test_smoke.py -q
 ```
+
+## License
+
+[MIT](LICENSE)

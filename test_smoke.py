@@ -6,14 +6,17 @@ Run:  .venv/bin/python -m pytest test_smoke.py -q
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 import pir
-from pir import Album, MainScreen, PirApp, Song, fmt_time, progress_bar
+from pir import Album, MainScreen, PirApp, Scrobbler, Song, fmt_time, progress_bar
 
 
 class FakeClient:
     def __init__(self) -> None:
+        self.scrobbles: list[tuple] = []
         self.albums = [
             Album(id="a1", name="Evening Tea", artist="The Kettles", year=2021),
             Album(id="a2", name="Rainy Windows", artist="Cloud Choir", year=2019),
@@ -45,6 +48,9 @@ class FakeClient:
     def stream_url(self, song_id):
         return f"fake://stream/{song_id}"
 
+    def scrobble(self, song_id, submission, timestamp_ms=None):
+        self.scrobbles.append((song_id, submission, timestamp_ms))
+
 
 class FakePlayer:
     def __init__(self) -> None:
@@ -62,6 +68,9 @@ class FakePlayer:
     def toggle_pause(self):
         self.paused = not self.paused
 
+    def seek(self, seconds):
+        self.time_pos = max(0.0, min(self.time_pos + seconds, self.duration))
+
     def stop(self):
         pass
 
@@ -73,6 +82,25 @@ def make_app() -> PirApp:
     app = PirApp(client=FakeClient())
     app.player = FakePlayer()
     return app
+
+
+def make_song(duration: int) -> Song:
+    return Song(
+        id="s1",
+        title="Steam",
+        artist="The Kettles",
+        album="Evening Tea",
+        duration=duration,
+    )
+
+
+def wait_for_scrobbles(client, deadline=2.0) -> None:
+    """The scrobbler posts from a background thread; give it a moment."""
+    end = time.monotonic() + deadline
+    while time.monotonic() < end:
+        if any(sub for _, sub, _ in client.scrobbles):
+            return
+        time.sleep(0.01)
 
 
 @pytest.mark.asyncio
@@ -108,6 +136,81 @@ async def test_play_pause_and_advance():
         # footer shows the cozy now-playing line
         app.screen._render_now_playing()
         await pilot.pause(0.1)
+
+
+@pytest.mark.asyncio
+async def test_arrow_keys_scrub_the_track():
+    app = make_app()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause(0.3)
+        # arrows only scrub once something is playing
+        await pilot.press("right")
+        assert app.player.time_pos == 42.0
+        await pilot.press("tab")
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        await pilot.press("right")
+        assert app.player.time_pos == 47.0
+        await pilot.press("shift+left")
+        assert app.player.time_pos == 17.0
+        # and the search box keeps its own arrow keys for editing the query
+        await pilot.press("slash")
+        for ch in "tea":
+            await pilot.press(ch)
+        await pilot.press("left")
+        assert app.player.time_pos == 17.0
+        assert app.screen.query_one("#search").cursor_position == 2
+
+
+@pytest.mark.asyncio
+async def test_playing_a_song_announces_it():
+    app = make_app()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause(0.3)
+        await pilot.press("tab")
+        await pilot.press("enter")
+        await pilot.pause(0.3)
+        assert ("s1", False, None) in app.client.scrobbles
+
+
+def test_scrobble_lands_at_the_halfway_mark():
+    client = FakeClient()
+    scrobbler = Scrobbler(client)
+    song = make_song(181)
+    scrobbler.track_started(song)
+    # one second of listening per tick; half of 3:01 is 90.5 seconds
+    for pos in range(1, 91):
+        scrobbler.tick(float(pos), 181.0, paused=False)
+    assert not any(sub for _, sub, _ in client.scrobbles)
+    scrobbler.tick(91.0, 181.0, paused=False)
+    wait_for_scrobbles(client)
+    assert client.scrobbles[-1] == ("s1", True, int(scrobbler._started_at * 1000))
+    # and only once, however long the track runs on
+    for pos in range(92, 181):
+        scrobbler.tick(float(pos), 181.0, paused=False)
+    assert sum(1 for _, sub, _ in client.scrobbles if sub) == 1
+
+
+def test_skipping_ahead_does_not_earn_a_scrobble():
+    client = FakeClient()
+    scrobbler = Scrobbler(client)
+    song = make_song(181)
+    scrobbler.track_started(song)
+    # ten seconds of real listening, then a jump to the end
+    for pos in range(1, 11):
+        scrobbler.tick(float(pos), 181.0, paused=False)
+    scrobbler.tick(180.0, 181.0, paused=False)
+    assert not any(sub for _, sub, _ in client.scrobbles)
+
+
+def test_short_tracks_are_never_scrobbled():
+    client = FakeClient()
+    scrobbler = Scrobbler(client)
+    song = make_song(20)
+    scrobbler.track_started(song)
+    for pos in range(1, 21):
+        scrobbler.tick(float(pos), 20.0, paused=False)
+    assert not any(sub for _, sub, _ in client.scrobbles)
 
 
 @pytest.mark.asyncio
@@ -177,29 +280,6 @@ async def test_highlight_matches_hover_block():
         style = lst.get_component_styles("option-list--option-highlighted")
         assert style.background.ansi == 7  # ansi_white, same as hover
         assert style.color.ansi == 0  # ansi_black
-
-
-def test_config_migrates_from_cozydrome(monkeypatch, tmp_path):
-    old_file = tmp_path / "cozydrome" / "config.toml"
-    old_file.parent.mkdir()
-    old_file.write_text('server = "https://x.example"\nusername = "graham"\n')
-    new_dir = tmp_path / "pir"
-    monkeypatch.setattr(pir, "CONFIG_DIR", new_dir)
-    monkeypatch.setattr(pir, "CONFIG_FILE", new_dir / "config.toml")
-    monkeypatch.setattr(pir, "OLD_CONFIG_FILE", old_file)
-    stored = {("cozydrome", "graham"): "sekrit"}
-    monkeypatch.setattr(
-        pir.keyring, "get_password", lambda svc, user: stored.get((svc, user))
-    )
-    monkeypatch.setattr(
-        pir.keyring,
-        "set_password",
-        lambda svc, user, pw: stored.__setitem__((svc, user), pw),
-    )
-    config = pir.Config.load()
-    assert config is not None and config.username == "graham"
-    assert (new_dir / "config.toml").exists()
-    assert stored[("pir", "graham")] == "sekrit"
 
 
 def test_fmt_time():

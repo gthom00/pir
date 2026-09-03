@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import queue
 import random
 import secrets
 import socket
@@ -37,11 +38,6 @@ API_VERSION = "1.16.1"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_NAME
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 
-# pir used to be called cozydrome; logins saved under the old name migrate
-# automatically on first load
-OLD_APP_NAME = "cozydrome"
-OLD_CONFIG_FILE = CONFIG_DIR.parent / OLD_APP_NAME / "config.toml"
-
 ACCENT = "bold"
 DIM = "dim"
 
@@ -56,17 +52,10 @@ class Config:
 
     @classmethod
     def load(cls) -> "Config | None":
-        config = cls._read(CONFIG_FILE)
-        if config is None:
-            config = cls._migrate_from_cozydrome()
-        return config
-
-    @classmethod
-    def _read(cls, path: Path) -> "Config | None":
         try:
             import tomllib
 
-            with open(path, "rb") as f:
+            with open(CONFIG_FILE, "rb") as f:
                 data = tomllib.load(f)
             server = data.get("server", "").rstrip("/")
             username = data.get("username", "")
@@ -75,19 +64,6 @@ class Config:
         except FileNotFoundError:
             pass
         return None
-
-    @classmethod
-    def _migrate_from_cozydrome(cls) -> "Config | None":
-        config = cls._read(OLD_CONFIG_FILE)
-        if config is None:
-            return None
-        # copy the keychain entry before saving, so a keyring hiccup leaves
-        # the old login untouched; the cozydrome leftovers are kept in place
-        password = keyring.get_password(OLD_APP_NAME, config.username)
-        if password:
-            keyring.set_password(APP_NAME, config.username, password)
-        config.save()
-        return config
 
     def save(self) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -211,6 +187,20 @@ class SubsonicClient:
         songs = body.get("searchResult3", {}).get("song", [])
         return [self._song(s) for s in songs]
 
+    def scrobble(
+        self, song_id: str, submission: bool, timestamp_ms: int | None = None
+    ) -> None:
+        """Tell the server what's playing.
+
+        submission=False is a "now playing" heartbeat that Navidrome shows
+        in its web UI and forwards to Last.fm; submission=True records the
+        play in the listening history.
+        """
+        params = {"id": song_id, "submission": "true" if submission else "false"}
+        if timestamp_ms is not None:
+            params["time"] = str(timestamp_ms)
+        self._get("scrobble", **params)
+
     def stream_url(self, song_id: str) -> str:
         params = {**self._auth_params(), "id": song_id}
         query = "&".join(
@@ -331,6 +321,14 @@ class MpvPlayer:
     def toggle_pause(self) -> None:
         self._send({"command": ["cycle", "pause"]})
 
+    def seek(self, seconds: float) -> None:
+        """Jump `seconds` forwards (or backwards, if negative)."""
+        self._send({"command": ["seek", seconds, "relative"]})
+        # move the clock now so the bar answers the keypress; mpv's own
+        # time-pos will overwrite this within a tick
+        limit = self.duration if self.duration > 0 else self.time_pos + seconds
+        self.time_pos = min(max(0.0, self.time_pos + seconds), limit)
+
     def stop(self) -> None:
         self._send({"command": ["stop"]})
         self.time_pos = 0.0
@@ -353,6 +351,86 @@ class MpvPlayer:
             os.unlink(self._sock_path)
         except OSError:
             pass
+
+
+# ──────────────────────────────── scrobbling ──────────────────────────────────
+
+
+class Scrobbler:
+    """Keeps the server posted on what's playing, and files the play once
+    it counts.
+
+    A track counts after half its length or four minutes of listening,
+    whichever comes first; anything shorter than 30 seconds never counts.
+    Only real listening adds up — pauses and skips ahead don't, since the
+    time is accumulated from how far the clock actually crept forward.
+
+    Requests go out on a background thread so a slow server never stalls
+    the interface, and a failed one is dropped: a missing scrobble isn't
+    worth interrupting the music over.
+    """
+
+    MIN_DURATION = 30.0  # shorter tracks are never scrobbled
+    MAX_REQUIRED = 240.0  # four minutes is always enough
+    PING_INTERVAL = 30.0  # how often to refresh "now playing"
+    MAX_STEP = 2.0  # a bigger jump than this is a seek, not listening
+
+    def __init__(self, client: SubsonicClient) -> None:
+        self._client = client
+        self._outbox: queue.Queue[tuple[str, bool, int | None]] = queue.Queue()
+        self._song: Song | None = None
+        self._started_at = 0.0
+        self._listened = 0.0
+        self._last_pos = 0.0
+        self._next_ping = 0.0
+        self._submitted = False
+        threading.Thread(target=self._worker, daemon=True).start()
+
+    def _worker(self) -> None:
+        while True:
+            song_id, submission, timestamp = self._outbox.get()
+            try:
+                self._client.scrobble(song_id, submission, timestamp)
+            except Exception:
+                pass
+
+    def track_started(self, song: Song) -> None:
+        self._song = song
+        self._started_at = time.time()
+        self._listened = 0.0
+        self._last_pos = 0.0
+        self._submitted = False
+        self._ping()
+
+    def stopped(self) -> None:
+        self._song = None
+
+    def tick(self, position: float, duration: float, paused: bool) -> None:
+        """Feed in the playback clock; call this a couple of times a second."""
+        if self._song is None:
+            return
+        step = position - self._last_pos
+        self._last_pos = position
+        if paused:
+            return
+        if 0 < step <= self.MAX_STEP:
+            self._listened += step
+        if time.monotonic() >= self._next_ping:
+            self._ping()
+        if not self._submitted and self._counts_as_played(duration):
+            self._submitted = True
+            self._outbox.put((self._song.id, True, int(self._started_at * 1000)))
+
+    def _counts_as_played(self, duration: float) -> bool:
+        if duration < self.MIN_DURATION:
+            return False
+        return self._listened >= min(duration / 2, self.MAX_REQUIRED)
+
+    def _ping(self) -> None:
+        if self._song is None:
+            return
+        self._next_ping = time.monotonic() + self.PING_INTERVAL
+        self._outbox.put((self._song.id, False, None))
 
 
 # ────────────────────────────────── helpers ───────────────────────────────────
@@ -567,6 +645,12 @@ class MainScreen(Screen):
         Binding("space", "toggle_pause", "pause", priority=True),
         Binding("n", "next_song", "next"),
         Binding("b", "prev_song", "back"),
+        # the search box owns the arrow keys while it has focus, so these
+        # only fire when a list is focused
+        Binding("right", "seek(5)", "seek", show=False),
+        Binding("left", "seek(-5)", "seek", show=False),
+        Binding("shift+right", "seek(30)", "seek 30s", show=False),
+        Binding("shift+left", "seek(-30)", "seek 30s", show=False),
         Binding("slash", "search", "search"),
         Binding("s", "cycle_sort", "sort"),
         Binding("r", "shuffle_albums", "shuffle"),
@@ -591,13 +675,14 @@ class MainScreen(Screen):
         self.queue_index: int = -1
         self.search_mode: str = "albums"
         self.sort_index: int = 0
+        self.scrobbler: Scrobbler | None = None
 
     # ── layout ──
 
     def compose(self) -> ComposeResult:
         yield Static(
             f"[{ACCENT}]✿ {APP_NAME}[/]  "
-            f"[{DIM}]· space pause · n next · / search · s sort · r shuffle · q quit[/]",
+            f"[{DIM}]· space pause · ←→ seek · n next · / search · s sort · q quit[/]",
             id="title",
         )
         with Horizontal(id="search-row"):
@@ -616,10 +701,20 @@ class MainScreen(Screen):
         yield NowPlaying(id="now-playing")
 
     def on_mount(self) -> None:
+        self.scrobbler = Scrobbler(self.app.client)
         self.query_one("#albums", CozyList).focus()
         self._render_now_playing()
-        self.set_interval(0.5, self._render_now_playing)
+        self.set_interval(0.5, self._tick)
         self.load_albums()
+
+    def _tick(self) -> None:
+        player = self.app.player
+        if self.scrobbler is not None and self.queue_index >= 0:
+            song = self.queue[self.queue_index]
+            self.scrobbler.tick(
+                player.time_pos, player.duration or song.duration, player.paused
+            )
+        self._render_now_playing()
 
     # ── data loading (thread workers) ──
 
@@ -736,6 +831,8 @@ class MainScreen(Screen):
             return
         song = self.queue[self.queue_index]
         self.app.player.play(self.app.client.stream_url(song.id))
+        if self.scrobbler is not None:
+            self.scrobbler.track_started(song)
         self._render_now_playing()
 
     def advance(self) -> None:
@@ -744,6 +841,8 @@ class MainScreen(Screen):
             self._play_current()
         else:
             self.queue_index = -1
+            if self.scrobbler is not None:
+                self.scrobbler.stopped()
             self._render_now_playing()
 
     def action_toggle_pause(self) -> None:
@@ -754,6 +853,11 @@ class MainScreen(Screen):
     def action_next_song(self) -> None:
         if self.queue_index >= 0:
             self.advance()
+
+    def action_seek(self, seconds: int) -> None:
+        if self.queue_index >= 0:
+            self.app.player.seek(seconds)
+            self._render_now_playing()
 
     def action_prev_song(self) -> None:
         if self.queue_index > 0:
