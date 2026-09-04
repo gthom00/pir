@@ -1,6 +1,6 @@
 """Textual screens for the pir music player."""
 
-from textual import events, work
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -9,12 +9,10 @@ from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from ..config import Config
-from ..consts import ACCENT, APP_NAME, CONFIG_DIR, DIM
-from ..models import Song
-from ..players import MpvPlayer
+from ..consts import ACCENT, APP_NAME, DIM
 from ..scrobbler import Scrobbler
 from ..services import SubsonicClient
-from ..utils import fmt_time, progress_bar
+from ..utils import esc_markup, fmt_time, progress_bar
 from .widgets import CozyList, NowPlaying, PaneTitle, SearchInput
 
 
@@ -89,7 +87,7 @@ class SetupScreen(Screen):
             client.ping()
         except Exception as exc:
             self.app.call_from_thread(
-                self._status, f"[{DIM}]☂ couldn't get in: {exc}[/]"
+                self._status, f"[{DIM}]☂ couldn't get in: {esc_markup(str(exc))}[/]"
             )
             return
         config = Config(server=server, username=username)
@@ -228,6 +226,7 @@ class MainScreen(Screen):
             return
         if label == "random":
             import random
+
             random.shuffle(albums)
         self.app.call_from_thread(self._show_albums, albums)
 
@@ -239,7 +238,7 @@ class MainScreen(Screen):
     def _show_albums_error(self, message: str) -> None:
         lst = self.query_one("#albums", CozyList)
         lst.clear_options()
-        lst.add_option(Option(f"☂ {message}", disabled=True))
+        lst.add_option(Option(f"☂ {esc_markup(message)}", disabled=True))
 
     @work(thread=True, exclusive=True, group="albums")
     def run_search_albums(self, query: str) -> None:
@@ -248,7 +247,7 @@ class MainScreen(Screen):
         except Exception as exc:
             self.app.call_from_thread(self._show_albums_error, str(exc))
             return
-        note = None if albums else f"☾ nothing found for \"{query}\""
+        note = None if albums else f'☾ nothing found for "{esc_markup(query)}"'
         self.app.call_from_thread(self._show_albums, albums, note, "search")
 
     def _show_albums(
@@ -269,7 +268,12 @@ class MainScreen(Screen):
             lst.add_option(Option(note, disabled=True))
         for album in albums:
             year = f"  [{DIM}]{album.year}[/]" if album.year else ""
-            lst.add_option(Option(f"{album.name}  [{DIM}]{album.artist}[/]{year}"))
+            lst.add_option(
+                Option(
+                    f"{esc_markup(album.name)}  "
+                    f"[{DIM}]{esc_markup(album.artist)}[/]{year}"
+                )
+            )
         if albums:
             lst.highlighted = 0
 
@@ -278,7 +282,7 @@ class MainScreen(Screen):
         try:
             songs = self.app.client.album_songs(album_id)
         except Exception as exc:
-            self.app.call_from_thread(self._show_songs, [], f"☂ {exc}")
+            self.app.call_from_thread(self._show_songs, [], f"☂ {esc_markup(str(exc))}")
             return
         self.app.call_from_thread(self._show_songs, songs)
 
@@ -287,9 +291,9 @@ class MainScreen(Screen):
         try:
             songs = self.app.client.search_songs(query)
         except Exception as exc:
-            self.app.call_from_thread(self._show_songs, [], f"☂ {exc}")
+            self.app.call_from_thread(self._show_songs, [], f"☂ {esc_markup(str(exc))}")
             return
-        note = None if songs else f"☾ nothing found for \"{query}\""
+        note = None if songs else f'☾ nothing found for "{esc_markup(query)}"'
         self.app.call_from_thread(self._show_songs, songs, note)
 
     def _show_songs(self, songs: list, note: str | None = None) -> None:
@@ -300,7 +304,12 @@ class MainScreen(Screen):
             lst.add_option(Option(note, disabled=True))
         for song in songs:
             length = f"  [{DIM}]{fmt_time(song.duration)}[/]" if song.duration else ""
-            lst.add_option(Option(f"{song.title}  [{DIM}]{song.artist}[/]{length}"))
+            lst.add_option(
+                Option(
+                    f"{esc_markup(song.title)}  "
+                    f"[{DIM}]{esc_markup(song.artist)}[/]{length}"
+                )
+            )
         if songs:
             lst.highlighted = 0
 
@@ -420,5 +429,6 @@ class MainScreen(Screen):
         bar = progress_bar(player.time_pos, duration)
         times = f"[{DIM}]{fmt_time(player.time_pos)} / {fmt_time(duration)}[/]"
         widget.update(
-            f"[{ACCENT}]{mark}[/] {song.title}  [{DIM}]{song.artist}[/]\n{bar}  {times}"
+            f"[{ACCENT}]{mark}[/] {esc_markup(song.title)}  "
+            f"[{DIM}]{esc_markup(song.artist)}[/]\n{bar}  {times}"
         )

@@ -6,7 +6,11 @@ import secrets
 import requests
 
 from .consts import API_VERSION, APP_NAME
-from .models import Album, Song, SubsonicError
+from .models import Album, Song
+
+
+class SubsonicError(Exception):
+    pass
 
 
 class SubsonicClient:

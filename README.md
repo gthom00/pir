@@ -66,8 +66,15 @@ rm ~/.config/pir/config.toml
 ## tests
 
 ```sh
-.venv/bin/pip install pytest pytest-asyncio
-.venv/bin/python -m pytest test_smoke.py -q
+.venv/bin/pip install -e ".[dev]"
+.venv/bin/python -m pytest -q
+```
+
+lint & format with ruff:
+
+```sh
+.venv/bin/ruff check .
+.venv/bin/ruff format .
 ```
 
 ## license

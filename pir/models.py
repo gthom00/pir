@@ -3,10 +3,6 @@
 from dataclasses import dataclass
 
 
-class SubsonicError(Exception):
-    pass
-
-
 @dataclass
 class Album:
     id: str

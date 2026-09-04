@@ -5,8 +5,6 @@ import threading
 from textual.app import App
 
 from .config import Config
-from .consts import APP_NAME
-from .models import SubsonicError
 from .players import MpvPlayer
 from .services import SubsonicClient
 from .ui.screens import MainScreen, SetupScreen
@@ -34,7 +32,9 @@ class PirApp(App):
             self.player.start()
         except (FileNotFoundError, RuntimeError):
             self.exit(
-                message="☂ mpv is needed for playback — brew install mpv, then come back!"
+                message=(
+                    "☂ mpv is needed for playback — brew install mpv, then come back!"
+                )
             )
             return
         if self.client is None:

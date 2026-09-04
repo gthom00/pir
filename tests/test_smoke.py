@@ -1,7 +1,7 @@
 """Headless smoke tests: mount the app with a fake client and fake player,
 drive it with Textual's pilot, and make sure the cozy machinery works.
 
-Run:  .venv/bin/python -m pytest test_smoke.py -q
+Run:  .venv/bin/python -m pytest -q
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 
 import pytest
+from textual.content import Content
 
 import pir
 from pir import Album, MainScreen, PirApp, Scrobbler, Song, fmt_time, progress_bar
@@ -23,11 +24,29 @@ class FakeClient:
         ]
         self.songs = {
             "a1": [
-                Song(id="s1", title="Steam", artist="The Kettles", album="Evening Tea", duration=181),
-                Song(id="s2", title="Chamomile", artist="The Kettles", album="Evening Tea", duration=222),
+                Song(
+                    id="s1",
+                    title="Steam",
+                    artist="The Kettles",
+                    album="Evening Tea",
+                    duration=181,
+                ),
+                Song(
+                    id="s2",
+                    title="Chamomile",
+                    artist="The Kettles",
+                    album="Evening Tea",
+                    duration=222,
+                ),
             ],
             "a2": [
-                Song(id="s3", title="Drizzle", artist="Cloud Choir", album="Rainy Windows", duration=143),
+                Song(
+                    id="s3",
+                    title="Drizzle",
+                    artist="Cloud Choir",
+                    album="Rainy Windows",
+                    duration=143,
+                ),
             ],
         }
 
@@ -40,7 +59,12 @@ class FakeClient:
         return self.songs[album_id]
 
     def search_songs(self, query, count=50):
-        return [s for songs in self.songs.values() for s in songs if query.lower() in s.title.lower()]
+        return [
+            s
+            for songs in self.songs.values()
+            for s in songs
+            if query.lower() in s.title.lower()
+        ]
 
     def search_albums(self, query, count=50):
         return [a for a in self.albums if query.lower() in a.name.lower()]
@@ -114,6 +138,51 @@ async def test_mounts_and_lists_albums():
         # highlighting the first album loads its songs
         songs = app.screen.query_one("#songs")
         assert songs.option_count == 2
+
+
+@pytest.mark.asyncio
+async def test_markup_metacharacters_in_song_titles_do_not_crash():
+    # regression: song metadata is interpolated into Textual markup, and a
+    # title full of square brackets (this YAYAYI track) used to blow up the
+    # markup parser while the song list was being drawn
+    title = "HORIZONTAL }[}[}}}[}}[[}[}[}}}}}[[[}[} 999%)"
+
+    class YayayiClient:
+        def album_list_all(self, list_type="alphabeticalByName"):
+            return [Album(id="a1", name="YAYAYI", artist="YAYAYI", year=2024)]
+
+        def album_songs(self, album_id):
+            return [
+                Song(
+                    id="s1",
+                    title=title,
+                    artist="YAYAYI",
+                    album="YAYAYI",
+                    duration=679,
+                )
+            ]
+
+        def search_songs(self, query, count=50):
+            return []
+
+        def search_albums(self, query, count=50):
+            return []
+
+        def stream_url(self, song_id):
+            return f"fake://stream/{song_id}"
+
+        def scrobble(self, song_id, submission, timestamp_ms=None):
+            pass
+
+    app = PirApp(client=YayayiClient())
+    app.player = FakePlayer()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause(0.3)
+        songs = app.screen.query_one("#songs")
+        assert songs.option_count == 1
+        prompt = songs.get_option_at_index(0).prompt
+        assert "YAYAYI" in Content.from_markup(prompt).plain
+        assert title in Content.from_markup(prompt).plain
 
 
 @pytest.mark.asyncio

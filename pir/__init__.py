@@ -10,15 +10,15 @@ Playback is handled by mpv; your password lives in the system keychain.
 #   from pir import Album, Song, Scrobbler, fmt_time, progress_bar
 
 from .app import PirApp
-from .consts import ACCENT, APP_NAME, CONFIG_DIR, CONFIG_FILE, DIM, API_VERSION
 from .config import Config
-from .models import Album, Song, SubsonicError
+from .consts import ACCENT, API_VERSION, APP_NAME, CONFIG_DIR, CONFIG_FILE, DIM
+from .models import Album, Song
 from .players import MpvPlayer
 from .scrobbler import Scrobbler
-from .services import SubsonicClient
+from .services import SubsonicClient, SubsonicError
 from .ui.screens import MainScreen, SetupScreen
 from .ui.widgets import CozyList, NowPlaying, PaneTitle, SearchInput
-from .utils import fmt_time, progress_bar
+from .utils import esc_markup, fmt_time, progress_bar
 
 __all__ = [
     # app
@@ -43,6 +43,7 @@ __all__ = [
     "SearchInput",
     "NowPlaying",
     # utils
+    "esc_markup",
     "fmt_time",
     "progress_bar",
     # consts

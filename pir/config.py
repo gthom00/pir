@@ -1,10 +1,9 @@
 """Configuration and credential storage."""
 
-import os
 from dataclasses import dataclass
-from pathlib import Path
 
 import keyring
+import tomli_w
 
 from .consts import APP_NAME, CONFIG_DIR, CONFIG_FILE
 
@@ -31,7 +30,7 @@ class Config:
 
     def save(self) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        body = f'server = "{self.server}"\nusername = "{self.username}"\n'
+        body = tomli_w.dumps({"server": self.server, "username": self.username})
         CONFIG_FILE.write_text(body, encoding="utf-8")
         CONFIG_FILE.chmod(0o600)
 

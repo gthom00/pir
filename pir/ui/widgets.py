@@ -2,9 +2,6 @@
 
 from textual import events
 from textual.widgets import Input, OptionList, Static
-from textual.widgets.option_list import Option
-
-from ..consts import ACCENT, APP_NAME, DIM
 
 
 class PaneTitle(Static):
