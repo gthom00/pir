@@ -3,14 +3,15 @@
 simple [navidrome](https://www.navidrome.org/) client for the terminal
 
 ```
-  ✿ pir   · space pause · ←→ seek · n next · / search · s sort · q quit
+  pir   · space pause · ←→ seek · n next · / search · s sort · g gain · +/- vol · q quit
 
-  ✻ albums  · alphabetical · 132       ✻ songs
-   Evening Tea  The Kettles  2021       Steam  The Kettles  3:01
-   Rainy Windows  Cloud Choir           Chamomile  The Kettles  3:42
+  ✻ albums  · alphabetical · 1218          ✻ songs
+   Plux Quba  Nuno Canavarro  1998          Nvivo  Skee Mask  5:33
+   Pool  Skee Mask  2021                    Stone Cold 369  Skee Mask  6:04
+   Pool Party  Spongebob Squarewave  2017   LFO  Skee Mask  4:54
 
-  ♪ Steam  The Kettles
-  ─────────●──────────────────  0:42 / 3:01
+  ♪ Nvivo  Skee Mask
+  ───●────────────────────────  0:42 / 5:33  · rg track
 ```
 
 ## needs
@@ -34,8 +35,9 @@ pipx install .
 
 the first run asks for your server url, username, and password. the
 password goes into your system keychain via `keyring`. only the server
-url and username are written to `~/.config/pir/config.toml`, chmod 600.
-requests use subsonic salted-token auth
+url, username, and replaygain mode are written to
+`~/.config/pir/config.toml`, chmod 600. requests use subsonic salted-token
+auth
 
 ## keys
 
@@ -50,11 +52,20 @@ requests use subsonic salted-token auth
 | `/`             | search albums (`tab` in the box switches to songs)     |
 | `s`             | cycle sort: alphabetical, recently added, recently played, random |
 | `r`             | jump straight to a fresh shuffle                       |
+| `g`             | cycle replaygain: track, album, off                    |
+| `+` `-`         | volume up / down — `=` works too, it's just `+` unshifted |
 | `q`             | quit                                                   |
 
 ## scrobbling
 
 pir reports what you're listening to as you listen to the server. i only did this for discord rpc
+
+## replaygain
+
+pir normalizes loudness through mpv's replaygain, using the tags in your
+music files. it starts in `track` mode; press `g` to cycle track → album →
+off (the footer shows the current mode). to start in a different mode, put
+`replaygain = "album"` (or `"off"`) in `~/.config/pir/config.toml`
 
 ## forgetting a login
 

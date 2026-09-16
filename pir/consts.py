@@ -10,3 +10,6 @@ CONFIG_FILE = CONFIG_DIR / "config.toml"
 
 ACCENT = "bold"
 DIM = "dim"
+
+REPLAYGAIN_MODES = ("off", "track", "album")
+REPLAYGAIN_DEFAULT = "track"

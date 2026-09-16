@@ -12,7 +12,17 @@ import pytest
 from textual.content import Content
 
 import pir
-from pir import Album, MainScreen, PirApp, Scrobbler, Song, fmt_time, progress_bar
+from pir import (
+    Album,
+    Config,
+    MainScreen,
+    MpvPlayer,
+    PirApp,
+    Scrobbler,
+    Song,
+    fmt_time,
+    progress_bar,
+)
 
 
 class FakeClient:
@@ -82,6 +92,9 @@ class FakePlayer:
         self.duration = 181.0
         self.paused = False
         self.played: list[str] = []
+        self.volume = 100.0
+        self.replaygain = "track"
+        self.gain_changes: list[str] = []
 
     def start(self):
         pass
@@ -91,6 +104,13 @@ class FakePlayer:
 
     def toggle_pause(self):
         self.paused = not self.paused
+
+    def set_replaygain(self, mode):
+        self.replaygain = mode
+        self.gain_changes.append(mode)
+
+    def adjust_volume(self, delta):
+        self.volume = min(max(0.0, self.volume + delta), 130.0)
 
     def seek(self, seconds):
         self.time_pos = max(0.0, min(self.time_pos + seconds, self.duration))
@@ -283,6 +303,62 @@ def test_short_tracks_are_never_scrobbled():
 
 
 @pytest.mark.asyncio
+async def test_replaygain_cycles_and_shows_in_footer():
+    app = make_app()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause(0.3)
+        await pilot.press("tab")
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        footer = app.screen.query_one("#now-playing").render().plain
+        assert "rg track" in footer  # starts in track mode and says so
+        # track -> album -> off -> track
+        await pilot.press("g")
+        await pilot.pause()
+        assert app.player.replaygain == "album"
+        assert app.player.gain_changes == ["album"]
+        footer = app.screen.query_one("#now-playing").render().plain
+        assert "rg album" in footer
+        await pilot.press("g")
+        await pilot.pause()
+        assert app.player.replaygain == "off"
+        footer = app.screen.query_one("#now-playing").render().plain
+        assert "rg" not in footer
+        await pilot.press("g")
+        await pilot.pause()
+        assert app.player.replaygain == "track"
+
+
+@pytest.mark.asyncio
+async def test_volume_keys_adjust_and_flash_in_footer():
+    app = make_app()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause(0.3)
+        await pilot.press("tab")
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        # `=` is `+` unshifted: both raise the volume
+        await pilot.press("=")
+        await pilot.pause()
+        assert app.player.volume == 105.0
+        footer = app.screen.query_one("#now-playing").render().plain
+        assert "vol 105" in footer
+        await pilot.press("+")
+        await pilot.pause()
+        assert app.player.volume == 110.0
+        # and `-` brings it back down
+        await pilot.press("-")
+        await pilot.pause()
+        assert app.player.volume == 105.0
+        assert "vol 105" in app.screen.query_one("#now-playing").render().plain
+        # the flash fades out and the tick sweeps it from the footer
+        app.screen._volume_note_until = time.monotonic() - 1
+        app.screen._render_now_playing()
+        await pilot.pause()
+        assert "vol" not in app.screen.query_one("#now-playing").render().plain
+
+
+@pytest.mark.asyncio
 async def test_album_search_is_default():
     app = make_app()
     async with app.run_test(size=(100, 30)) as pilot:
@@ -338,16 +414,16 @@ async def test_sort_cycles_and_shuffle():
 
 
 @pytest.mark.asyncio
-async def test_highlight_matches_hover_block():
+async def test_highlight_paints_ansi_block():
     # regression: reverse video over default colors was invisible on some
-    # terminals; the keyboard cursor now paints the same ansi_white block
-    # the mouse hover uses, with explicit black text
+    # terminals; the cursor row paints an ansi_white block with explicit
+    # black text
     app = make_app()
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause(0.3)
         lst = app.screen.query_one("#albums")  # focused on mount
         style = lst.get_component_styles("option-list--option-highlighted")
-        assert style.background.ansi == 7  # ansi_white, same as hover
+        assert style.background.ansi == 7  # ansi_white
         assert style.color.ansi == 0  # ansi_black
 
 
@@ -369,6 +445,34 @@ def test_auth_token_never_contains_password():
     url = client.stream_url("song1")
     assert "sekrit" not in url
     assert "t=" in url and "s=" in url
+
+
+def test_mpv_replaygain_flag_and_validation():
+    player = MpvPlayer(replaygain="album")
+    assert player._replaygain_flag() == "--replaygain=album"
+    player.replaygain = "off"
+    assert player._replaygain_flag() == "--replaygain=no"  # mpv spells it no
+    with pytest.raises(ValueError):
+        player.set_replaygain("loud")  # not a real mode; IPC untouched
+
+
+def test_config_replaygain_roundtrip(tmp_path, monkeypatch):
+    import pir.config as config_mod
+
+    monkeypatch.setattr(config_mod, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config_mod, "CONFIG_FILE", tmp_path / "config.toml")
+
+    Config(server="https://x.example", username="g", replaygain="album").save()
+    assert Config.load().replaygain == "album"
+
+    def write(body: str) -> None:
+        (tmp_path / "config.toml").write_text(body)
+
+    write('server = "https://x.example"\nusername = "g"\nreplaygain = "loud"\n')
+    assert Config.load().replaygain == "track"  # bogus values fall back
+
+    write('server = "https://x.example"\nusername = "g"\n')
+    assert Config.load().replaygain == "track"  # missing means the default
 
 
 @pytest.mark.asyncio

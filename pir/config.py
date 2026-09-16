@@ -5,13 +5,20 @@ from dataclasses import dataclass
 import keyring
 import tomli_w
 
-from .consts import APP_NAME, CONFIG_DIR, CONFIG_FILE
+from .consts import (
+    APP_NAME,
+    CONFIG_DIR,
+    CONFIG_FILE,
+    REPLAYGAIN_DEFAULT,
+    REPLAYGAIN_MODES,
+)
 
 
 @dataclass
 class Config:
     server: str = ""
     username: str = ""
+    replaygain: str = REPLAYGAIN_DEFAULT
 
     @classmethod
     def load(cls) -> "Config | None":
@@ -23,14 +30,23 @@ class Config:
             server = data.get("server", "").rstrip("/")
             username = data.get("username", "")
             if server and username:
-                return cls(server=server, username=username)
+                replaygain = data.get("replaygain", REPLAYGAIN_DEFAULT)
+                if replaygain not in REPLAYGAIN_MODES:
+                    replaygain = REPLAYGAIN_DEFAULT
+                return cls(server=server, username=username, replaygain=replaygain)
         except FileNotFoundError:
             pass
         return None
 
     def save(self) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        body = tomli_w.dumps({"server": self.server, "username": self.username})
+        body = tomli_w.dumps(
+            {
+                "server": self.server,
+                "username": self.username,
+                "replaygain": self.replaygain,
+            }
+        )
         CONFIG_FILE.write_text(body, encoding="utf-8")
         CONFIG_FILE.chmod(0o600)
 

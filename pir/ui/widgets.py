@@ -33,9 +33,9 @@ class CozyList(OptionList):
         text-style: bold;
         background: transparent;
     }
-    /* the cursor row mirrors the mouse-hover block (ansi_white, palette
-       color 7) — reverse video proved invisible on some terminals; black
-       text keeps it readable on both light and dark palettes */
+    /* the cursor row paints an ansi_white block (palette color 7) —
+       reverse video proved invisible on some terminals; black text keeps
+       it readable on both light and dark palettes */
     CozyList:focus > .option-list--option-highlighted {
         color: ansi_black;
         background: ansi_white;

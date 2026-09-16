@@ -1,7 +1,8 @@
 """pir — a cozy little Navidrome client for your terminal.
 
 No borders, gentle padding, a few cute symbols, and no colors at all —
-just your terminal's default foreground with bold, dim, and reverse.
+just your terminal's default foreground with bold and dim, plus a solid
+black-on-white block for the cursor row.
 Playback is handled by mpv; your password lives in the system keychain.
 """
 
@@ -11,7 +12,16 @@ Playback is handled by mpv; your password lives in the system keychain.
 
 from .app import PirApp
 from .config import Config
-from .consts import ACCENT, API_VERSION, APP_NAME, CONFIG_DIR, CONFIG_FILE, DIM
+from .consts import (
+    ACCENT,
+    API_VERSION,
+    APP_NAME,
+    CONFIG_DIR,
+    CONFIG_FILE,
+    DIM,
+    REPLAYGAIN_DEFAULT,
+    REPLAYGAIN_MODES,
+)
 from .models import Album, Song
 from .players import MpvPlayer
 from .scrobbler import Scrobbler
@@ -53,4 +63,6 @@ __all__ = [
     "CONFIG_FILE",
     "ACCENT",
     "DIM",
+    "REPLAYGAIN_MODES",
+    "REPLAYGAIN_DEFAULT",
 ]

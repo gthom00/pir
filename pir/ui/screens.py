@@ -1,5 +1,7 @@
 """Textual screens for the pir music player."""
 
+import time
+
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -9,7 +11,7 @@ from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from ..config import Config
-from ..consts import ACCENT, APP_NAME, DIM
+from ..consts import ACCENT, APP_NAME, DIM, REPLAYGAIN_MODES
 from ..scrobbler import Scrobbler
 from ..services import SubsonicClient
 from ..utils import esc_markup, fmt_time, progress_bar
@@ -151,6 +153,11 @@ class MainScreen(Screen):
         Binding("slash", "search", "search"),
         Binding("s", "cycle_sort", "sort"),
         Binding("r", "shuffle_albums", "shuffle"),
+        Binding("g", "cycle_replaygain", "gain"),
+        # `=` is `+` unshifted — some folks refuse to reach for shift mid-song
+        Binding("plus", "volume_up", "louder", show=False),
+        Binding("equals_sign", "volume_up", "louder", show=False),
+        Binding("minus", "volume_down", "quieter", show=False),
         Binding("escape", "hide_search", show=False),
         Binding("tab", "swap_pane", "swap", show=False),
         Binding("q", "app.quit", "quit"),
@@ -164,6 +171,9 @@ class MainScreen(Screen):
         ("random", "alphabeticalByName"),  # fetched sorted, shuffled locally
     ]
 
+    VOLUME_STEP = 5
+    VOLUME_NOTE_SECONDS = 3.0
+
     def __init__(self) -> None:
         super().__init__()
         self.albums: list = []
@@ -173,13 +183,15 @@ class MainScreen(Screen):
         self.search_mode: str = "albums"
         self.sort_index: int = 0
         self.scrobbler: Scrobbler | None = None
+        self._volume_note_until: float = 0.0
 
     # ── layout ──
 
     def compose(self) -> ComposeResult:
         yield Static(
-            f"[{ACCENT}]✿ {APP_NAME}[/]  "
-            f"[{DIM}]· space pause · ←→ seek · n next · / search · s sort · q quit[/]",
+            f"[{ACCENT}]{APP_NAME}[/]  "
+            f"[{DIM}]· space pause · ←→ seek · n next · / search · s sort · "
+            f"g gain · +/- vol · q quit[/]",
             id="title",
         )
         with Horizontal(id="search-row"):
@@ -410,6 +422,28 @@ class MainScreen(Screen):
         )
         self.load_albums()
 
+    def action_cycle_replaygain(self) -> None:
+        player = self.app.player
+        modes = REPLAYGAIN_MODES
+        current = getattr(player, "replaygain", "off")
+        if current not in modes:
+            current = "off"
+        player.set_replaygain(modes[(modes.index(current) + 1) % len(modes)])
+        self._render_now_playing()
+
+    def action_volume_up(self) -> None:
+        self._adjust_volume(self.VOLUME_STEP)
+
+    def action_volume_down(self) -> None:
+        self._adjust_volume(-self.VOLUME_STEP)
+
+    def _adjust_volume(self, delta: int) -> None:
+        self.app.player.adjust_volume(delta)
+        # flash the level in the footer for a few seconds, then let the
+        # 0.5s tick sweep it away
+        self._volume_note_until = time.monotonic() + self.VOLUME_NOTE_SECONDS
+        self._render_now_playing()
+
     def action_swap_pane(self) -> None:
         albums = self.query_one("#albums", CozyList)
         songs = self.query_one("#songs", CozyList)
@@ -428,7 +462,15 @@ class MainScreen(Screen):
         duration = player.duration or song.duration
         bar = progress_bar(player.time_pos, duration)
         times = f"[{DIM}]{fmt_time(player.time_pos)} / {fmt_time(duration)}[/]"
+        notes: list[str] = []
+        volume = getattr(player, "volume", None)
+        if volume is not None and time.monotonic() < self._volume_note_until:
+            notes.append(f"vol {int(round(volume))}")
+        gain = getattr(player, "replaygain", "off")
+        if gain != "off":
+            notes.append(f"rg {gain}")
+        note_text = "".join(f"  [{DIM}]· {note}[/]" for note in notes)
         widget.update(
             f"[{ACCENT}]{mark}[/] {esc_markup(song.title)}  "
-            f"[{DIM}]{esc_markup(song.artist)}[/]\n{bar}  {times}"
+            f"[{DIM}]{esc_markup(song.artist)}[/]\n{bar}  {times}{note_text}"
         )

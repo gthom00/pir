@@ -28,6 +28,13 @@ class PirApp(App):
         self.player = MpvPlayer(on_track_end=self._on_track_end)
 
     def on_mount(self) -> None:
+        if self.client is None:
+            config = Config.load()
+            password = config.password() if config else None
+            if config and password:
+                self.client = SubsonicClient(config.server, config.username, password)
+                # set before start() so mpv boots with the configured mode
+                self.player.replaygain = config.replaygain
         try:
             self.player.start()
         except (FileNotFoundError, RuntimeError):
@@ -37,11 +44,6 @@ class PirApp(App):
                 )
             )
             return
-        if self.client is None:
-            config = Config.load()
-            password = config.password() if config else None
-            if config and password:
-                self.client = SubsonicClient(config.server, config.username, password)
         if self.client is not None:
             self.push_screen(MainScreen())
         else:
@@ -69,4 +71,4 @@ class PirApp(App):
 
 
 def main() -> None:
-    PirApp().run()
+    PirApp().run(mouse=False)
