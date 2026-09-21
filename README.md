@@ -2,17 +2,7 @@
 
 simple [navidrome](https://www.navidrome.org/) client for the terminal
 
-```
-  pir   · space pause · ←→ seek · n next · / search · s sort · g gain · +/- vol · q quit
-
-  ✻ albums  · alphabetical · 1218          ✻ songs
-   Plux Quba  Nuno Canavarro  1998          Nvivo  Skee Mask  5:33
-   Pool  Skee Mask  2021                    Stone Cold 369  Skee Mask  6:04
-   Pool Party  Spongebob Squarewave  2017   LFO  Skee Mask  4:54
-
-  ♪ Nvivo  Skee Mask
-  ───●────────────────────────  0:42 / 5:33  · rg track
-```
+![pir running in a terminal](./docs/screenshot.png)
 
 ## needs
 
