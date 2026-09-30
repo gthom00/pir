@@ -2,7 +2,7 @@
 
 simple [navidrome](https://www.navidrome.org/) client for the terminal
 
-![pir running in a terminal](./docs/screenshot.png)
+![pir running in a terminal](./docs/screenshot.png?v=2)
 
 ## needs
 
