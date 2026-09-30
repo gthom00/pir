@@ -414,17 +414,45 @@ async def test_sort_cycles_and_shuffle():
 
 
 @pytest.mark.asyncio
-async def test_highlight_paints_ansi_block():
-    # regression: reverse video over default colors was invisible on some
-    # terminals; the cursor row paints an ansi_white block with explicit
-    # black text
+async def test_highlight_inverts_default_colors():
+    # regression: palette slots 0/7 aren't actually black/white in every
+    # theme (Xcode Light maps them to robin's-egg blue / near-black), so
+    # the cursor row inverts the terminal's own default fg/bg instead
     app = make_app()
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause(0.3)
         lst = app.screen.query_one("#albums")  # focused on mount
         style = lst.get_component_styles("option-list--option-highlighted")
-        assert style.background.ansi == 7  # ansi_white
-        assert style.color.ansi == 0  # ansi_black
+        assert style.background.ansi == -1  # ansi_default
+        assert style.color.ansi == -1  # ansi_default
+        # ...and render_line flips the whole row to reverse video
+        strip = lst.render_line(0)
+        assert strip._segments
+        assert all(segment.style.reverse for segment in strip._segments)
+
+
+@pytest.mark.asyncio
+async def test_theme_follows_system_appearance(monkeypatch):
+    # the ansi-light/ansi-dark choice tracks the OS appearance, both at
+    # startup and live once the system flips modes under our feet
+    monkeypatch.setattr(pir.app, "prefers_dark", lambda: True)
+    app = PirApp(client=FakeClient())
+    app.player = FakePlayer()
+    assert app.theme == "ansi-dark"
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        # macOS drifts back to daylight mid-session
+        monkeypatch.setattr(pir.app, "prefers_dark", lambda: False)
+        await app._sync_theme()
+        assert app.theme == "ansi-light"
+        # and then changes its mind again
+        monkeypatch.setattr(pir.app, "prefers_dark", lambda: True)
+        await app._sync_theme()
+        assert app.theme == "ansi-dark"
+
+
+def test_prefers_dark_returns_a_bool():
+    assert isinstance(pir.app.prefers_dark(), bool)
 
 
 def test_fmt_time():

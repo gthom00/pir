@@ -1,13 +1,17 @@
 """Main application class for pir."""
 
+import asyncio
 import threading
 
 from textual.app import App
 
+from .appearance import prefers_dark
 from .config import Config
 from .players import MpvPlayer
 from .services import SubsonicClient
 from .ui.screens import MainScreen, SetupScreen
+
+THEME_POLL_SECONDS = 2.0
 
 
 class PirApp(App):
@@ -20,14 +24,17 @@ class PirApp(App):
 
     def __init__(self, client: SubsonicClient | None = None) -> None:
         super().__init__(ansi_color=True)
-        # the ansi theme keeps every widget on the terminal's own default
-        # fg/bg — without it, list/input text is painted in dark-theme RGB
-        # greys that wash out on light terminals
-        self.theme = "ansi-light"
+        # the ansi themes keep every widget on the terminal's own default
+        # fg/bg — without them, list/input text is painted in dark-theme
+        # RGB greys that wash out on light terminals. light vs dark swaps
+        # the cursor/selection colors, so pick the one matching the OS
+        # and keep following it as it changes its mind
+        self.theme = "ansi-dark" if prefers_dark() else "ansi-light"
         self.client = client
         self.player = MpvPlayer(on_track_end=self._on_track_end)
 
     def on_mount(self) -> None:
+        self.set_interval(THEME_POLL_SECONDS, self._sync_theme)
         if self.client is None:
             config = Config.load()
             password = config.password() if config else None
@@ -48,6 +55,15 @@ class PirApp(App):
             self.push_screen(MainScreen())
         else:
             self.push_screen(SetupScreen())
+
+    async def _sync_theme(self) -> None:
+        """Follow the OS into light or dark mode without blocking the UI.
+
+        The theme reactive only repaints when the name actually changes,
+        so re-setting it on every poll is a no-op most of the time.
+        """
+        dark = await asyncio.to_thread(prefers_dark)
+        self.theme = "ansi-dark" if dark else "ansi-light"
 
     def finish_setup(self, client: SubsonicClient) -> None:
         self.client = client

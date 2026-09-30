@@ -1,6 +1,8 @@
 """Textual widgets used in the pir UI."""
 
+from rich.style import Style
 from textual import events
+from textual.strip import Strip
 from textual.widgets import Input, OptionList, Static
 
 
@@ -33,15 +35,27 @@ class CozyList(OptionList):
         text-style: bold;
         background: transparent;
     }
-    /* the cursor row paints an ansi_white block (palette color 7) —
-       reverse video proved invisible on some terminals; black text keeps
-       it readable on both light and dark palettes */
+    /* palette slots 0/7 aren't actually black/white in every theme (Xcode
+       Light paints slot 0 robin's-egg blue), so render_line inverts the
+       terminal's own default fg/bg instead */
     CozyList:focus > .option-list--option-highlighted {
-        color: ansi_black;
-        background: ansi_white;
+        color: ansi_default;
+        background: ansi_default;
         text-style: bold;
     }
     """
+
+    def render_line(self, y: int) -> Strip:
+        strip = super().render_line(y)
+        if not self.has_focus:
+            return strip
+        try:
+            index, _ = self._lines[self.scroll_offset.y + y]
+        except (IndexError, KeyError):
+            return strip
+        if index == self.highlighted:
+            return strip.apply_style(Style(reverse=True))
+        return strip
 
 
 class SearchInput(Input):
