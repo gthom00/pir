@@ -202,10 +202,10 @@ class MainScreen(Screen):
             )
         with Horizontal(id="panes"):
             with Vertical(id="albums-pane"):
-                yield PaneTitle("✻ albums", id="albums-title")
+                yield PaneTitle("＊ albums", id="albums-title")
                 yield CozyList(id="albums")
             with Vertical(id="songs-pane"):
-                yield PaneTitle("✻ songs")
+                yield PaneTitle("＊ songs")
                 yield CozyList(id="songs")
         yield NowPlaying(id="now-playing")
 
@@ -272,7 +272,7 @@ class MainScreen(Screen):
         label = source or self.SORTS[self.sort_index][0]
         count = f" · {len(albums)}" if albums else ""
         self.query_one("#albums-title", PaneTitle).update(
-            f"✻ albums  [{DIM}]· {label}{count}[/]"
+            f"＊ albums  [{DIM}]· {label}{count}[/]"
         )
         lst = self.query_one("#albums", CozyList)
         lst.clear_options()
